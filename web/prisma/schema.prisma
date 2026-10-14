@@ -1,0 +1,124 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum GroupStatus {
+  OPEN
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
+enum RoundStatus {
+  PENDING
+  OPEN
+  PAID_OUT
+}
+
+enum ActivityType {
+  GROUP_CREATED
+  MEMBER_JOINED
+  GROUP_STARTED
+  CONTRIBUTED
+  ROUND_PAID_OUT
+  GROUP_COMPLETED
+}
+
+model User {
+  id            String   @id @default(cuid())
+  privyId       String   @unique
+  walletAddress String   @unique
+  displayName   String?
+  avatarUrl     String?
+  createdAt     DateTime @default(now())
+  members       Member[]
+  adminOf       Group[]  @relation("GroupAdmin")
+}
+
+model Group {
+  id                 String      @id @default(cuid())
+  chainGroupId       Int         @unique
+  contractAddress    String
+  name               String
+  description        String?
+  inviteCode         String      @unique
+  adminId            String
+  admin              User        @relation("GroupAdmin", fields: [adminId], references: [id])
+  tokenAddress       String
+  contributionAmount String      // satuan terkecil token (6 desimal)
+  maxMembers         Int
+  periodSeconds      Int
+  status             GroupStatus @default(OPEN)
+  currentRound       Int         @default(0)
+  startedAt          DateTime?
+  createdTxHash      String      @unique
+  createdAt          DateTime    @default(now())
+  members            Member[]
+  rounds             Round[]
+  activities         Activity[]
+}
+
+model Member {
+  id            String         @id @default(cuid())
+  groupId       String
+  userId        String
+  walletAddress String
+  position      Int            // urutan giliran, mulai dari 0
+  joinTxHash    String         @unique
+  joinedAt      DateTime       @default(now())
+  group         Group          @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user          User           @relation(fields: [userId], references: [id])
+  contributions Contribution[]
+  roundsWon     Round[]        @relation("RoundRecipient")
+
+  @@unique([groupId, userId])
+  @@unique([groupId, position])
+}
+
+model Round {
+  id            String         @id @default(cuid())
+  groupId       String
+  number        Int
+  recipientId   String
+  dueAt         DateTime
+  status        RoundStatus    @default(PENDING)
+  potAmount     String?
+  paidOutTxHash String?        @unique
+  paidOutAt     DateTime?
+  group         Group          @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  recipient     Member         @relation("RoundRecipient", fields: [recipientId], references: [id])
+  contributions Contribution[]
+
+  @@unique([groupId, number])
+}
+
+model Contribution {
+  id       String   @id @default(cuid())
+  roundId  String
+  memberId String
+  amount   String
+  txHash   String   @unique
+  paidAt   DateTime @default(now())
+  round    Round    @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  member   Member   @relation(fields: [memberId], references: [id])
+
+  @@unique([roundId, memberId])
+}
+
+model Activity {
+  id        String       @id @default(cuid())
+  groupId   String
+  type      ActivityType
+  actorId   String?      // Member.id jika ada
+  payload   Json?
+  txHash    String?
+  createdAt DateTime     @default(now())
+  group     Group        @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@index([groupId, createdAt])
+}
